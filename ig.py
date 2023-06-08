@@ -28,30 +28,34 @@ def getAccountsThatDontFollowYouBack(followers, following):
     return result
 
 
-def refreshCollection(headers, db: Database):
+def refreshCollection(id, headers, db: Database):
     print("Refreshing collection")
-    collection_followers = db["followers"]
+    collection_followers = db[str(id)]["followers"]
 
     headers = {
         'cookie':config['cookie']
     }
 
-    followers = getFollowers(headers, None)
+    followers = getFollowers(id, headers, None)
 
-    collection_followers.find_one_and_replace({},{
+    collection_followers.update_one({},{'$set':{
         "date": datetime.datetime.utcnow(),
         "followers": json.dumps(followers)
-    })
+    }}, upsert=True)
+
     print("Followers refreshed")
 
-def getDailyData(config, db: Database):
-    collection_followers = db["followers"]
+def getDailyData(id, config, db: Database):
+    collection_followers = db[str(id)]["followers"]
+    if collection_followers.find_one({}) is None:
+        print("No previous data found. Jumping out...")
+        return
 
     headers = {
         'cookie':config['cookie']
     }
 
-    followers = getFollowers(headers, None)
+    followers = getFollowers(id, headers, None)
 
     print("Fetching previous day from the db..")
     doc = collection_followers.find_one({})
@@ -70,7 +74,7 @@ def getDailyData(config, db: Database):
     count = len(followers)
     
     print(count)
-    collection_other = db["other"]
+    collection_other = db[str(id)]["other"]
     collection_other.insert_one({
         "date": datetime.datetime.utcnow(),
         "unfollowers": unfollowers,
@@ -81,7 +85,7 @@ def getDailyData(config, db: Database):
 
 
 
-def getFollowers(headers, end_cursor, users=[], has_next_page = True ):
+def getFollowers(id, headers, end_cursor, users=[], has_next_page = True ):
     time.sleep(randint(1,5))
     print("Fetching followers...")
     if has_next_page == False:
@@ -91,7 +95,7 @@ def getFollowers(headers, end_cursor, users=[], has_next_page = True ):
 
     } 
 
-    payload['id'] = os.environ['IG_TARGET_ID']
+    payload['id'] = id
     payload['first'] = "50"
 
     if end_cursor:
@@ -110,11 +114,16 @@ def getFollowers(headers, end_cursor, users=[], has_next_page = True ):
     end_cursor = data['data']['user']['edge_followed_by']['page_info']['end_cursor']
     has_next_page = data['data']['user']['edge_followed_by']['page_info']['has_next_page']
 
-    return getFollowers(headers, end_cursor, users, has_next_page)
+    return getFollowers(id, headers, end_cursor, users, has_next_page)
 
+
+def fetchTarget(id, config, db):
+    getDailyData(id, config, db)
+    refreshCollection(id, config, db) 
 
 db = get_database()
 config = db['config'].find_one()
-getDailyData(config, db)
-refreshCollection(config, db)
+targetList = json.loads(os.environ['IG_TARGET_LIST'])
 
+for targetId in targetList:
+    fetchTarget(targetId, config, db)
