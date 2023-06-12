@@ -30,7 +30,7 @@ def getAccountsThatDontFollowYouBack(followers, following):
 
 def refreshCollection(id, headers, db: Database):
     print("Refreshing collection")
-    collection_followers = db[str(id)]["followers"]
+    collection_followers = db["followers"]
 
     headers = {
         'cookie':config['cookie']
@@ -38,7 +38,7 @@ def refreshCollection(id, headers, db: Database):
 
     followers = getFollowers(id, headers, None)
 
-    collection_followers.update_one({},{'$set':{
+    collection_followers.update_one({'targetId': id},{'$set':{
         "date": datetime.datetime.utcnow(),
         "followers": json.dumps(followers)
     }}, upsert=True)
@@ -46,8 +46,9 @@ def refreshCollection(id, headers, db: Database):
     print("Followers refreshed")
 
 def getDailyData(id, config, db: Database):
-    collection_followers = db[str(id)]["followers"]
-    if collection_followers.find_one({}) is None:
+    collection_followers = db["followers"]
+    doc = collection_followers.find_one({'targetId': id})
+    if doc is None:
         print("No previous data found. Jumping out...")
         return
 
@@ -58,7 +59,6 @@ def getDailyData(id, config, db: Database):
     followers = getFollowers(id, headers, None)
 
     print("Fetching previous day from the db..")
-    doc = collection_followers.find_one({})
     fstr = doc.get("followers")
     last_followers = json.loads(fstr) 
     unfollowers = []
@@ -74,8 +74,9 @@ def getDailyData(id, config, db: Database):
     count = len(followers)
     
     print(count)
-    collection_other = db[str(id)]["other"]
+    collection_other = db["other"]
     collection_other.insert_one({
+        "targetId": id,
         "date": datetime.datetime.utcnow(),
         "unfollowers": unfollowers,
         "new_followers": new_followers,
@@ -126,4 +127,4 @@ config = db['config'].find_one()
 targetList = json.loads(os.environ['IG_TARGET_LIST'])
 
 for targetId in targetList:
-    fetchTarget(targetId, config, db)
+    fetchTarget(str(targetId), config, db)
